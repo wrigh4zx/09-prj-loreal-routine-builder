@@ -1,5 +1,6 @@
 /* Get references to DOM elements */
 const categoryFilter = document.getElementById("categoryFilter");
+const productSearch = document.getElementById("productSearch");
 const productsContainer = document.getElementById("productsContainer");
 const chatForm = document.getElementById("chatForm");
 const chatWindow = document.getElementById("chatWindow");
@@ -9,6 +10,12 @@ const generateRoutineBtn = document.getElementById("generateRoutine");
 /* Keep selected products in memory while the page is open */
 let selectedProducts = [];
 let previousFocusedElement = null;
+let typingTimer = null;
+let productsCache = [];
+let productsLoaded = false;
+
+/* Track the active keyword search */
+let activeSearchQuery = "";
 
 /* Create a reusable modal for product descriptions */
 const descriptionModal = document.createElement("div");
@@ -64,6 +71,88 @@ function escapeHtml(text) {
     .replace(/'/g, "&#039;");
 }
 
+/* Remove common markdown styling so the response reads like plain text */
+function formatAssistantText(text) {
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*]\s+/gm, "- ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\n\s*\n/g, "\n\n")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+/* Keep worker-provided links safe before placing them into HTML */
+function sanitizeUrl(url) {
+  try {
+    const parsedUrl = new URL(url);
+
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      return "";
+    }
+
+    return parsedUrl.href;
+  } catch (_error) {
+    return "";
+  }
+}
+
+/* Type the assistant response into the chat window one character at a time */
+function typeIntoChatWindow(answer, citations = [], title = "") {
+  if (typingTimer) {
+    clearInterval(typingTimer);
+    typingTimer = null;
+  }
+
+  const plainText = formatAssistantText(answer);
+  const citationMarkup = citations.length
+    ? `
+      <div class="chat-citations">
+        <h3>Sources</h3>
+        <ul>
+          ${citations
+            .map((citation, index) => {
+              const safeUrl = sanitizeUrl(citation.url);
+              const safeLabel = escapeHtml(
+                citation.title || citation.url || `Source ${index + 1}`,
+              );
+
+              if (!safeUrl) {
+                return "";
+              }
+
+              return `<li><a href="${safeUrl}" target="_blank" rel="noreferrer noopener">${safeLabel}</a></li>`;
+            })
+            .join("")}
+        </ul>
+      </div>
+    `
+    : "";
+
+  chatWindow.innerHTML = `
+    <div class="chat-response">
+      ${title ? `<h3>${escapeHtml(title)}</h3>` : ""}
+      <div class="chat-response-text"></div>
+      ${citationMarkup}
+    </div>
+  `;
+
+  const responseText = chatWindow.querySelector(".chat-response-text");
+
+  let index = 0;
+  typingTimer = setInterval(() => {
+    responseText.textContent = plainText.slice(0, index + 1);
+    index += 1;
+
+    if (index >= plainText.length) {
+      clearInterval(typingTimer);
+      typingTimer = null;
+    }
+  }, 18);
+}
+
 /* Return only fields needed for routine generation */
 function getSelectedProductData() {
   return selectedProducts.map((product) => ({
@@ -74,17 +163,152 @@ function getSelectedProductData() {
   }));
 }
 
+/* Normalize text for keyword matching */
+function normalizeSearchText(text) {
+  return text.toLowerCase().trim();
+}
+
+/* Load product data once and reuse it for filtering */
+async function loadProducts() {
+  if (productsLoaded) {
+    return productsCache;
+  }
+
+  const response = await fetch("products.json");
+  const data = await response.json();
+  productsCache = Array.isArray(data.products) ? data.products : [];
+  productsLoaded = true;
+  return productsCache;
+}
+
+/* Return the products that match the current category and keyword filters */
+function getFilteredProducts(products) {
+  const selectedCategory = categoryFilter.value;
+  const searchQuery = normalizeSearchText(activeSearchQuery);
+
+  return products.filter((product) => {
+    const matchesCategory =
+      !selectedCategory || product.category === selectedCategory;
+
+    if (!matchesCategory) {
+      return false;
+    }
+
+    if (!searchQuery) {
+      return true;
+    }
+
+    const searchableText = normalizeSearchText(
+      `${product.name} ${product.brand} ${product.category} ${product.description}`,
+    );
+
+    return searchableText.includes(searchQuery);
+  });
+}
+
+/* Build a helpful message when no products match the filters */
+function getEmptyProductMessage() {
+  const hasCategory = Boolean(categoryFilter.value);
+  const hasSearch = Boolean(normalizeSearchText(activeSearchQuery));
+
+  if (hasCategory && hasSearch) {
+    return "No products match that category and search term.";
+  }
+
+  if (hasCategory) {
+    return "No products found in this category.";
+  }
+
+  if (hasSearch) {
+    return "No products match your search.";
+  }
+
+  return "Select a category or search by keyword to view products.";
+}
+
+/* Render the products that match the current filters */
+async function renderFilteredProducts() {
+  const products = await loadProducts();
+  const filteredProducts = getFilteredProducts(products);
+  displayProducts(filteredProducts);
+}
+
+/* Send a chat request to the worker and return the assistant reply */
+async function sendChatRequest(messages) {
+  const safeWorkerUrl = typeof WORKER_URL === "string" ? WORKER_URL.trim() : "";
+
+  if (!safeWorkerUrl) {
+    throw new Error("Missing worker URL. Add WORKER_URL in secrets.js.");
+  }
+
+  const payload = {
+    messages,
+  };
+
+  let response;
+
+  try {
+    response = await fetch(safeWorkerUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (_networkError) {
+    throw new Error(
+      "Network fetch failed. Check WORKER_URL, your worker deployment, CORS settings, and internet connection.",
+    );
+  }
+
+  const responseText = await response.text();
+  let data = null;
+
+  try {
+    data = responseText ? JSON.parse(responseText) : null;
+  } catch (_jsonError) {
+    data = responseText;
+  }
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(
+        "Worker endpoint not found (404). Check WORKER_URL in secrets.js.",
+      );
+    }
+
+    throw new Error(
+      (typeof data === "string" && data.trim()) ||
+        data?.error?.message ||
+        data?.message ||
+        `Worker request failed (status ${response.status}).`,
+    );
+  }
+
+  const reply =
+    data?.answer ||
+    data?.output_text ||
+    data?.choices?.[0]?.message?.content ||
+    data?.message?.content ||
+    data?.result ||
+    data?.response ||
+    (typeof data === "string" ? data : "");
+
+  if (!reply) {
+    throw new Error("No response was returned by the worker.");
+  }
+
+  return {
+    answer: reply,
+    citations: Array.isArray(data?.citations) ? data.citations : [],
+  };
+}
+
 /* Ask OpenAI for a personalized routine using selected products */
 async function generateRoutineFromSelectedProducts() {
   if (selectedProducts.length === 0) {
     chatWindow.textContent =
       "Please select at least one product, then click Generate Routine.";
-    return;
-  }
-
-  if (typeof OPENAI_API_KEY === "undefined" || !OPENAI_API_KEY) {
-    chatWindow.textContent =
-      "Missing API key. Add your key in secrets.js before generating a routine.";
     return;
   }
 
@@ -95,44 +319,23 @@ async function generateRoutineFromSelectedProducts() {
   generateRoutineBtn.disabled = true;
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+    const routine = await sendChatRequest([
+      {
+        role: "system",
+        content:
+          "You are a beauty routine assistant. Use current, web-verified information when relevant. Create a practical step-by-step routine using only the selected products. Include morning and evening sections when possible. Return plain text only. Do not use markdown, bold text, bullet points, or special formatting. Use short section labels on separate lines, then list each step on its own line. Include any useful sources the worker provides.",
       },
-      body: JSON.stringify({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a beauty routine assistant. Create a practical step-by-step routine using only the selected products. Include morning and evening sections when possible.",
-          },
-          {
-            role: "user",
-            content: `Create a personalized skincare/beauty routine using only these selected products:\n\n${productJson}`,
-          },
-        ],
-      }),
-    });
+      {
+        role: "user",
+        content: `Create a personalized skincare/beauty routine using only these selected products:\n\n${productJson}`,
+      },
+    ]);
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      const apiMessage = data.error?.message || "OpenAI request failed.";
-      throw new Error(apiMessage);
-    }
-
-    const routine = data.choices?.[0]?.message?.content;
-
-    if (!routine) {
-      throw new Error("No routine was returned by the API.");
-    }
-
-    chatWindow.innerHTML = `<strong>Your Personalized Routine</strong><br><br>${escapeHtml(
-      routine,
-    ).replace(/\n/g, "<br>")}`;
+    typeIntoChatWindow(
+      routine.answer,
+      routine.citations,
+      "Your Personalized Routine",
+    );
   } catch (error) {
     chatWindow.textContent = `Something went wrong: ${error.message}`;
   } finally {
@@ -214,22 +417,17 @@ function renderSelectedProducts() {
     .join("");
 }
 
-/* Show initial placeholder until user selects a category */
-productsContainer.innerHTML = `
-  <div class="placeholder-message">
-    Select a category to view products
-  </div>
-`;
-
-/* Load product data from JSON file */
-async function loadProducts() {
-  const response = await fetch("products.json");
-  const data = await response.json();
-  return data.products;
-}
-
 /* Create HTML for displaying product cards */
 function displayProducts(products) {
+  if (products.length === 0) {
+    productsContainer.innerHTML = `
+      <div class="placeholder-message">
+        ${getEmptyProductMessage()}
+      </div>
+    `;
+    return;
+  }
+
   productsContainer.innerHTML = products
     .map((product) => {
       const productId = getProductId(product);
@@ -265,16 +463,13 @@ function displayProducts(products) {
 
 /* Filter and display products when category changes */
 categoryFilter.addEventListener("change", async (e) => {
-  const products = await loadProducts();
-  const selectedCategory = e.target.value;
+  await renderFilteredProducts();
+});
 
-  /* filter() creates a new array containing only products
-     where the category matches what the user selected */
-  const filteredProducts = products.filter(
-    (product) => product.category === selectedCategory,
-  );
-
-  displayProducts(filteredProducts);
+/* Filter products as the user types in the search field */
+productSearch.addEventListener("input", async (e) => {
+  activeSearchQuery = e.target.value;
+  await renderFilteredProducts();
 });
 
 /* Handle click on product cards using event delegation */
@@ -282,10 +477,7 @@ productsContainer.addEventListener("click", async (e) => {
   const descriptionButton = e.target.closest(".description-toggle");
   if (descriptionButton) {
     const products = await loadProducts();
-    const selectedCategory = categoryFilter.value;
-    const filteredProducts = products.filter(
-      (product) => product.category === selectedCategory,
-    );
+    const filteredProducts = getFilteredProducts(products);
 
     const productToShow = filteredProducts.find(
       (product) =>
@@ -305,10 +497,7 @@ productsContainer.addEventListener("click", async (e) => {
   }
 
   const products = await loadProducts();
-  const selectedCategory = categoryFilter.value;
-  const filteredProducts = products.filter(
-    (product) => product.category === selectedCategory,
-  );
+  const filteredProducts = getFilteredProducts(products);
 
   const clickedProduct = filteredProducts.find(
     (product) => getProductId(product) === productCard.dataset.productId,
@@ -319,7 +508,7 @@ productsContainer.addEventListener("click", async (e) => {
   }
 
   toggleProductSelection(clickedProduct);
-  displayProducts(filteredProducts);
+  await renderFilteredProducts();
 });
 
 /* Support keyboard selection with Enter/Space */
@@ -340,10 +529,7 @@ productsContainer.addEventListener("keydown", async (e) => {
   e.preventDefault();
 
   const products = await loadProducts();
-  const selectedCategory = categoryFilter.value;
-  const filteredProducts = products.filter(
-    (product) => product.category === selectedCategory,
-  );
+  const filteredProducts = getFilteredProducts(products);
 
   const focusedProduct = filteredProducts.find(
     (product) => getProductId(product) === productCard.dataset.productId,
@@ -354,7 +540,7 @@ productsContainer.addEventListener("keydown", async (e) => {
   }
 
   toggleProductSelection(focusedProduct);
-  displayProducts(filteredProducts);
+  await renderFilteredProducts();
 });
 
 /* Remove products directly from selected section */
@@ -372,17 +558,7 @@ selectedProductsList.addEventListener("click", (e) => {
   renderSelectedProducts();
 
   /* Refresh visible cards so selected border is removed in grid */
-  const selectedCategory = categoryFilter.value;
-  if (!selectedCategory) {
-    return;
-  }
-
-  loadProducts().then((products) => {
-    const filteredProducts = products.filter(
-      (product) => product.category === selectedCategory,
-    );
-    displayProducts(filteredProducts);
-  });
+  renderFilteredProducts();
 });
 
 /* Close modal from close button or when clicking the backdrop */
@@ -404,15 +580,49 @@ document.addEventListener("keydown", (e) => {
 
 /* Show empty state message in selected section on first load */
 renderSelectedProducts();
+renderFilteredProducts();
 
 /* Generate routine from selected products */
 generateRoutineBtn.addEventListener("click", async () => {
   await generateRoutineFromSelectedProducts();
 });
 
-/* Chat form submission handler - placeholder for OpenAI integration */
-chatForm.addEventListener("submit", (e) => {
+/* Chat form submission handler */
+chatForm.addEventListener("submit", async (e) => {
   e.preventDefault();
 
-  chatWindow.innerHTML = "Connect to the OpenAI API for a response!";
+  const userInput = document.getElementById("userInput");
+  const sendBtn = document.getElementById("sendBtn");
+  const question = userInput.value.trim();
+
+  if (!question) {
+    return;
+  }
+
+  const selectedProductData = getSelectedProductData();
+  const productJson = JSON.stringify(selectedProductData, null, 2);
+
+  chatWindow.textContent = "Thinking...";
+  sendBtn.disabled = true;
+
+  try {
+    const answer = await sendChatRequest([
+      {
+        role: "system",
+        content:
+          "You are a beauty routine assistant. Answer clearly and briefly. Use current, web-verified information when relevant. Use the selected products as your main context. If the question asks for a routine, give a practical step-by-step answer. Return plain text only. Do not use markdown, bold text, bullet points, or special formatting. Use short section labels on separate lines and keep each thought on its own line when helpful. Include any useful sources the worker provides.",
+      },
+      {
+        role: "user",
+        content: `Selected products:\n${productJson}\n\nUser question: ${question}`,
+      },
+    ]);
+
+    typeIntoChatWindow(answer.answer, answer.citations);
+    userInput.value = "";
+  } catch (error) {
+    chatWindow.textContent = `Something went wrong: ${error.message}`;
+  } finally {
+    sendBtn.disabled = false;
+  }
 });
