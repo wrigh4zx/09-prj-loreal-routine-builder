@@ -6,13 +6,186 @@ const chatForm = document.getElementById("chatForm");
 const chatWindow = document.getElementById("chatWindow");
 const selectedProductsList = document.getElementById("selectedProductsList");
 const generateRoutineBtn = document.getElementById("generateRoutine");
+const clearSelectedProductsBtn = document.getElementById(
+  "clearSelectedProducts",
+);
 
-/* Keep selected products in memory while the page is open */
+const localeStrings = {
+  en: {
+    pageTitle: "L'Oréal | Smart Routine & Product Advisor",
+    siteTitle: "Smart Routine & Product Advisor",
+    chooseCategory: "Choose a Category",
+    searchLabel: "Search products by name or keyword",
+    searchPlaceholder: "Search by name or keyword",
+    selectedProductsHeading: "Selected Products",
+    clearAll: "Clear All",
+    generateRoutine: "Generate Routine",
+    buildRoutineHeading: "Let's Build Your Routine",
+    messageLabel: "Message",
+    chatPlaceholder: "Ask me about products or routines…",
+    sendLabel: "Send",
+    selectedEmpty: "No products selected yet.",
+    noProductsMatchBoth: "No products match that category and search term.",
+    noProductsMatchCategory: "No products found in this category.",
+    noProductsMatchSearch: "No products match your search.",
+    noProductsPrompt:
+      "Select a category or search by keyword to view products.",
+    noProductsSelectedTitle: "No products selected",
+    noProductsSelectedMessage:
+      "Please select at least one product, then click Generate Routine.",
+    advisorLabel: "Advisor",
+    youLabel: "You",
+    sourcesHeading: "Sources",
+    detailsButton: "View details",
+    closeDescription: "Close description modal",
+    byText: "by",
+    footerCopyright: "© 2025 L'Oréal. All rights reserved.",
+    privacyPolicy: "Privacy Policy",
+    termsOfUse: "Terms of Use",
+    contact: "Contact",
+    missingWorkerUrl: "Missing worker URL. Add WORKER_URL in secrets.js.",
+    networkError:
+      "Network fetch failed. Check WORKER_URL, your worker deployment, CORS settings, and internet connection.",
+    notFoundError:
+      "Worker endpoint not found (404). Check WORKER_URL in secrets.js.",
+    noResponseError: "No response was returned by the worker.",
+    assistantLanguageInstruction: "Reply in English.",
+    categoryLabels: {
+      cleanser: "Cleansers",
+      moisturizer: "Moisturizers & Treatments",
+      skincare: "Skincare",
+      haircare: "Haircare",
+      makeup: "Makeup",
+      "hair color": "Hair Color",
+      "hair styling": "Hair Styling",
+      "men's grooming": "Men's Grooming",
+      suncare: "Suncare",
+      fragrance: "Fragrance",
+    },
+  },
+  fr: {
+    pageTitle: "L'Oréal | Conseiller de routine et de produits",
+    siteTitle: "Conseiller de routine et de produits",
+    chooseCategory: "Choisir une catégorie",
+    searchLabel: "Rechercher des produits par nom ou mot-clé",
+    searchPlaceholder: "Rechercher par nom ou mot-clé",
+    selectedProductsHeading: "Produits sélectionnés",
+    clearAll: "Tout effacer",
+    generateRoutine: "Générer la routine",
+    buildRoutineHeading: "Construisons votre routine",
+    messageLabel: "Message",
+    chatPlaceholder:
+      "Posez-moi des questions sur les produits ou les routines…",
+    sendLabel: "Envoyer",
+    selectedEmpty: "Aucun produit sélectionné pour le moment.",
+    noProductsMatchBoth:
+      "Aucun produit ne correspond à cette catégorie et à ce terme de recherche.",
+    noProductsMatchCategory: "Aucun produit trouvé dans cette catégorie.",
+    noProductsMatchSearch: "Aucun produit ne correspond à votre recherche.",
+    noProductsPrompt:
+      "Choisissez une catégorie ou recherchez par mot-clé pour afficher les produits.",
+    noProductsSelectedTitle: "Aucun produit sélectionné",
+    noProductsSelectedMessage:
+      "Sélectionnez au moins un produit, puis cliquez sur Générer la routine.",
+    advisorLabel: "Conseiller",
+    youLabel: "Vous",
+    sourcesHeading: "Sources",
+    detailsButton: "Voir les détails",
+    closeDescription: "Fermer la fenêtre de description",
+    byText: "par",
+    footerCopyright: "© 2025 L'Oréal. Tous droits réservés.",
+    privacyPolicy: "Politique de confidentialité",
+    termsOfUse: "Conditions d'utilisation",
+    contact: "Contact",
+    missingWorkerUrl:
+      "URL du worker manquante. Ajoutez WORKER_URL dans secrets.js.",
+    networkError:
+      "Échec de la requête réseau. Vérifiez WORKER_URL, le déploiement du worker, les paramètres CORS et votre connexion Internet.",
+    notFoundError:
+      "Point de terminaison du worker introuvable (404). Vérifiez WORKER_URL dans secrets.js.",
+    noResponseError: "Aucune réponse n'a été renvoyée par le worker.",
+    assistantLanguageInstruction: "Réponds en français.",
+    categoryLabels: {
+      cleanser: "Nettoyants",
+      moisturizer: "Hydratants et soins",
+      skincare: "Soins de la peau",
+      haircare: "Soins capillaires",
+      makeup: "Maquillage",
+      "hair color": "Coloration",
+      "hair styling": "Coiffage",
+      "men's grooming": "Soins pour hommes",
+      suncare: "Protection solaire",
+      fragrance: "Parfums",
+    },
+  },
+};
+
+function getBrowserLanguageCode() {
+  const preferredLanguages = Array.isArray(navigator.languages)
+    ? navigator.languages
+    : [];
+  const fallbackLanguage = navigator.language ? [navigator.language] : [];
+  const allLanguages = [...preferredLanguages, ...fallbackLanguage, "en"];
+  const firstLanguage = allLanguages.find(
+    (language) => typeof language === "string" && language.trim(),
+  );
+
+  return (firstLanguage || "en").toLowerCase();
+}
+
+function getSupportedLocale(languageCode) {
+  const primaryLanguage = String(languageCode || "en").split("-")[0];
+  return localeStrings[primaryLanguage] ? primaryLanguage : "en";
+}
+
+function getAssistantLanguageInstruction(languageCode) {
+  const locale = String(languageCode || "en").toLowerCase();
+
+  if (locale.startsWith("fr")) {
+    return "Réponds en français.";
+  }
+
+  const languageName = locale.startsWith("es")
+    ? "Spanish"
+    : locale.startsWith("de")
+      ? "German"
+      : locale.startsWith("it")
+        ? "Italian"
+        : locale.startsWith("pt")
+          ? "Portuguese"
+          : locale.startsWith("nl")
+            ? "Dutch"
+            : locale.startsWith("ar")
+              ? "Arabic"
+              : locale.startsWith("ja")
+                ? "Japanese"
+                : locale.startsWith("ko")
+                  ? "Korean"
+                  : locale.startsWith("zh")
+                    ? "Chinese"
+                    : "English";
+
+  return `Reply in ${languageName}.`;
+}
+
+const browserLanguageCode = getBrowserLanguageCode();
+const browserPrimaryLanguage = browserLanguageCode.split("-")[0];
+const currentLocale = getSupportedLocale(browserLanguageCode);
+let uiText = localeStrings[currentLocale];
+
+const selectedProductsStorageKey = "loreal-selected-products";
+const rtlLanguages = ["ar", "he", "fa", "ur"];
+const sharedSystemPrompt = `You are a beauty routine assistant for L'Oréal products. Use the selected products and the full conversation history to answer clearly and briefly. Keep replies focused on skincare, haircare, makeup, fragrance, and related routine questions. Use current, web-verified information when relevant. Return plain text only. Do not use markdown, bold text, bullet points, or special formatting. Use short section labels on separate lines and keep each thought on its own line when helpful. Include useful sources when available. ${getAssistantLanguageInstruction(browserLanguageCode)}`;
+
+/* Keep selected products and conversation history in memory while the page is open */
 let selectedProducts = [];
+let conversationHistory = [];
 let previousFocusedElement = null;
 let typingTimer = null;
 let productsCache = [];
 let productsLoaded = false;
+const translationCache = new Map();
+const localizedProductCache = new Map();
 
 /* Track the active keyword search */
 let activeSearchQuery = "";
@@ -58,12 +231,243 @@ const descriptionModalCloseBtn = descriptionModal.querySelector(
 
 /* Build a simple unique id from product details */
 function getProductId(product) {
+  if (product.id !== undefined && product.id !== null) {
+    return String(product.id);
+  }
+
   return `${product.name}-${product.brand}`;
+}
+
+function safeParseJson(text, fallbackValue) {
+  try {
+    return JSON.parse(text);
+  } catch (_error) {
+    return fallbackValue;
+  }
+}
+
+function saveSelectedProducts() {
+  try {
+    localStorage.setItem(
+      selectedProductsStorageKey,
+      JSON.stringify(selectedProducts),
+    );
+  } catch (_error) {
+    // Ignore storage failures so the UI still works.
+  }
+}
+
+function loadSelectedProducts() {
+  try {
+    const storedValue = localStorage.getItem(selectedProductsStorageKey);
+
+    if (!storedValue) {
+      return [];
+    }
+
+    const parsedValue = safeParseJson(storedValue, []);
+
+    return Array.isArray(parsedValue) ? parsedValue : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+function getInitialDirection() {
+  const browserLanguage = browserLanguageCode;
+  return rtlLanguages.some((language) => browserLanguage.startsWith(language))
+    ? "rtl"
+    : "ltr";
+}
+
+function shouldTranslateToBrowserLanguage() {
+  return browserPrimaryLanguage !== "en";
+}
+
+function createProductTranslationKey(product) {
+  return `${browserPrimaryLanguage}:${getProductId(product)}`;
+}
+
+function translateCategoryLabel(categoryValue) {
+  return uiText.categoryLabels[categoryValue] || categoryValue;
+}
+
+function applyLanguageToPage() {
+  document.documentElement.lang = browserLanguageCode;
+  document.documentElement.setAttribute("dir", getInitialDirection());
+  document.title = uiText.pageTitle;
+
+  const siteTitle = document.querySelector(".site-title");
+  if (siteTitle) {
+    siteTitle.textContent = uiText.siteTitle;
+  }
+
+  if (categoryFilter) {
+    const placeholderOption = categoryFilter.querySelector('option[value=""]');
+    if (placeholderOption) {
+      placeholderOption.textContent = uiText.chooseCategory;
+    }
+
+    categoryFilter.querySelectorAll("option").forEach((option) => {
+      if (option.value) {
+        option.textContent = translateCategoryLabel(option.value);
+      }
+    });
+  }
+
+  const productSearchLabel = document.querySelector(
+    'label[for="productSearch"]',
+  );
+  if (productSearchLabel) {
+    productSearchLabel.textContent = uiText.searchLabel;
+  }
+
+  if (productSearch) {
+    productSearch.placeholder = uiText.searchPlaceholder;
+  }
+
+  const selectedProductsHeading = document.querySelector(
+    ".selected-products h2",
+  );
+  if (selectedProductsHeading) {
+    selectedProductsHeading.textContent = uiText.selectedProductsHeading;
+  }
+
+  if (clearSelectedProductsBtn) {
+    clearSelectedProductsBtn.textContent = uiText.clearAll;
+  }
+
+  if (generateRoutineBtn) {
+    generateRoutineBtn.innerHTML =
+      '<i class="fa-solid fa-wand-magic-sparkles"></i> ' +
+      uiText.generateRoutine;
+  }
+
+  const chatHeading = document.querySelector(".chatbox h2");
+  if (chatHeading) {
+    chatHeading.textContent = uiText.buildRoutineHeading;
+  }
+
+  const userInput = document.getElementById("userInput");
+  if (userInput) {
+    userInput.placeholder = uiText.chatPlaceholder;
+  }
+
+  const userInputLabel = document.querySelector('label[for="userInput"]');
+  if (userInputLabel) {
+    userInputLabel.textContent = uiText.messageLabel;
+  }
+
+  const sendBtnLabel = document.querySelector("#sendBtn .visually-hidden");
+  if (sendBtnLabel) {
+    sendBtnLabel.textContent = uiText.sendLabel;
+  }
+
+  const footerCopyright = document.querySelector(".site-footer p");
+  if (footerCopyright) {
+    footerCopyright.textContent = uiText.footerCopyright;
+  }
+
+  const footerLinks = document.querySelectorAll(".site-footer nav a");
+  if (footerLinks[0]) {
+    footerLinks[0].textContent = uiText.privacyPolicy;
+  }
+  if (footerLinks[1]) {
+    footerLinks[1].textContent = uiText.termsOfUse;
+  }
+  if (footerLinks[2]) {
+    footerLinks[2].textContent = uiText.contact;
+  }
+
+  if (descriptionModalCloseBtn) {
+    descriptionModalCloseBtn.setAttribute(
+      "aria-label",
+      uiText.closeDescription,
+    );
+  }
+}
+
+function appendChatMessage(role, text, { title = "", citations = [] } = {}) {
+  const messageElement = document.createElement("article");
+  messageElement.className = `chat-turn chat-turn--${role}`;
+
+  const roleLabel = role === "user" ? uiText.youLabel : uiText.advisorLabel;
+  const citationMarkup =
+    role === "assistant" && citations.length
+      ? `
+        <div class="chat-citations">
+          <h3>${uiText.sourcesHeading}</h3>
+          <ul>
+            ${citations
+              .map((citation, index) => {
+                const safeUrl = sanitizeUrl(citation.url);
+                const safeLabel = escapeHtml(
+                  citation.title || citation.url || `Source ${index + 1}`,
+                );
+
+                if (!safeUrl) {
+                  return "";
+                }
+
+                return `<li><a href="${safeUrl}" target="_blank" rel="noreferrer noopener">${safeLabel}</a></li>`;
+              })
+              .join("")}
+          </ul>
+        </div>
+      `
+      : "";
+
+  messageElement.innerHTML = `
+    <div class="chat-turn-label">${roleLabel}</div>
+    <div class="chat-turn-panel">
+      ${title ? `<h3 class="chat-turn-title">${escapeHtml(title)}</h3>` : ""}
+      <div class="chat-turn-text"></div>
+      ${citationMarkup}
+    </div>
+  `;
+
+  const textElement = messageElement.querySelector(".chat-turn-text");
+  textElement.textContent = text;
+
+  chatWindow.appendChild(messageElement);
+  chatWindow.scrollTop = chatWindow.scrollHeight;
+
+  return { messageElement, textElement };
+}
+
+function appendUserMessage(text) {
+  appendChatMessage("user", text);
+}
+
+function recordConversationTurn(userMessage, assistantMessage) {
+  conversationHistory.push(
+    { role: "user", content: userMessage },
+    { role: "assistant", content: assistantMessage },
+  );
+}
+
+function buildConversationMessages(currentUserMessage) {
+  return [
+    { role: "system", content: sharedSystemPrompt },
+    ...conversationHistory,
+    { role: "user", content: currentUserMessage },
+  ];
+}
+
+function getSelectedProductsContext() {
+  const selectedProductData = getSelectedProductData();
+  return JSON.stringify(selectedProductData, null, 2);
+}
+
+function updateSelectedProductsControls() {
+  if (clearSelectedProductsBtn) {
+    clearSelectedProductsBtn.disabled = selectedProducts.length === 0;
+  }
 }
 
 /* Escape text before placing it into innerHTML */
 function escapeHtml(text) {
-  return text
+  return String(text ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -107,43 +511,14 @@ function typeIntoChatWindow(answer, citations = [], title = "") {
   }
 
   const plainText = formatAssistantText(answer);
-  const citationMarkup = citations.length
-    ? `
-      <div class="chat-citations">
-        <h3>Sources</h3>
-        <ul>
-          ${citations
-            .map((citation, index) => {
-              const safeUrl = sanitizeUrl(citation.url);
-              const safeLabel = escapeHtml(
-                citation.title || citation.url || `Source ${index + 1}`,
-              );
-
-              if (!safeUrl) {
-                return "";
-              }
-
-              return `<li><a href="${safeUrl}" target="_blank" rel="noreferrer noopener">${safeLabel}</a></li>`;
-            })
-            .join("")}
-        </ul>
-      </div>
-    `
-    : "";
-
-  chatWindow.innerHTML = `
-    <div class="chat-response">
-      ${title ? `<h3>${escapeHtml(title)}</h3>` : ""}
-      <div class="chat-response-text"></div>
-      ${citationMarkup}
-    </div>
-  `;
-
-  const responseText = chatWindow.querySelector(".chat-response-text");
+  const { textElement } = appendChatMessage("assistant", "", {
+    title,
+    citations,
+  });
 
   let index = 0;
   typingTimer = setInterval(() => {
-    responseText.textContent = plainText.slice(0, index + 1);
+    textElement.textContent = plainText.slice(0, index + 1);
     index += 1;
 
     if (index >= plainText.length) {
@@ -156,10 +531,10 @@ function typeIntoChatWindow(answer, citations = [], title = "") {
 /* Return only fields needed for routine generation */
 function getSelectedProductData() {
   return selectedProducts.map((product) => ({
-    name: product.name,
+    name: getProductDisplayName(product),
     brand: product.brand,
     category: product.category,
-    description: product.description,
+    description: getProductDisplayDescription(product),
   }));
 }
 
@@ -179,6 +554,160 @@ async function loadProducts() {
   productsCache = Array.isArray(data.products) ? data.products : [];
   productsLoaded = true;
   return productsCache;
+}
+
+function getProductDisplayName(product) {
+  const localizedProduct = localizedProductCache.get(
+    createProductTranslationKey(product),
+  );
+  return localizedProduct?.name || product.name;
+}
+
+function getProductDisplayDescription(product) {
+  const localizedProduct = localizedProductCache.get(
+    createProductTranslationKey(product),
+  );
+  return localizedProduct?.description || product.description;
+}
+
+async function translateTexts(texts) {
+  const safeTexts = texts.map((text) => String(text || ""));
+
+  if (!shouldTranslateToBrowserLanguage()) {
+    return safeTexts;
+  }
+
+  const result = new Array(safeTexts.length);
+  const missingTexts = [];
+  const missingIndexes = [];
+
+  safeTexts.forEach((text, index) => {
+    const cacheKey = `${browserPrimaryLanguage}:${text}`;
+
+    if (translationCache.has(cacheKey)) {
+      result[index] = translationCache.get(cacheKey);
+    } else {
+      missingTexts.push(text);
+      missingIndexes.push(index);
+    }
+  });
+
+  if (missingTexts.length > 0) {
+    const translatedMissingTexts = await sendTranslationRequest(missingTexts);
+
+    translatedMissingTexts.forEach((translatedText, index) => {
+      const originalText = missingTexts[index];
+      const cacheKey = `${browserPrimaryLanguage}:${originalText}`;
+      const safeTranslatedText = String(translatedText || originalText);
+
+      translationCache.set(cacheKey, safeTranslatedText);
+    });
+
+    missingIndexes.forEach((originalIndex, index) => {
+      result[originalIndex] =
+        translatedMissingTexts[index] || safeTexts[originalIndex];
+    });
+  }
+
+  return result.map((text, index) => text || safeTexts[index]);
+}
+
+async function getLocalizedProduct(product) {
+  if (!shouldTranslateToBrowserLanguage()) {
+    return product;
+  }
+
+  const productCacheKey = createProductTranslationKey(product);
+  const cachedProduct = localizedProductCache.get(productCacheKey);
+
+  if (cachedProduct) {
+    return cachedProduct;
+  }
+
+  const [translatedName, translatedDescription] = await translateTexts([
+    product.name,
+    product.description,
+  ]);
+
+  const localizedProduct = {
+    ...product,
+    name: translatedName,
+    description: translatedDescription,
+  };
+
+  localizedProductCache.set(productCacheKey, localizedProduct);
+  return localizedProduct;
+}
+
+async function localizeUiTextForBrowserLanguage() {
+  if (localeStrings[browserPrimaryLanguage]) {
+    uiText = localeStrings[browserPrimaryLanguage];
+    return;
+  }
+
+  const englishUiText = localeStrings.en;
+  const translatableKeys = [
+    "pageTitle",
+    "siteTitle",
+    "chooseCategory",
+    "searchLabel",
+    "searchPlaceholder",
+    "selectedProductsHeading",
+    "clearAll",
+    "generateRoutine",
+    "buildRoutineHeading",
+    "messageLabel",
+    "chatPlaceholder",
+    "sendLabel",
+    "selectedEmpty",
+    "noProductsMatchBoth",
+    "noProductsMatchCategory",
+    "noProductsMatchSearch",
+    "noProductsPrompt",
+    "noProductsSelectedTitle",
+    "noProductsSelectedMessage",
+    "advisorLabel",
+    "youLabel",
+    "sourcesHeading",
+    "detailsButton",
+    "closeDescription",
+    "byText",
+    "footerCopyright",
+    "privacyPolicy",
+    "termsOfUse",
+    "contact",
+    "missingWorkerUrl",
+    "networkError",
+    "notFoundError",
+    "noResponseError",
+  ];
+  const categoryKeys = Object.keys(englishUiText.categoryLabels);
+
+  const translatedValues = await translateTexts(
+    translatableKeys.map((key) => englishUiText[key]),
+  );
+  const translatedCategoryValues = await translateTexts(
+    categoryKeys.map((key) => englishUiText.categoryLabels[key]),
+  );
+
+  const localizedUiText = {
+    ...englishUiText,
+    categoryLabels: {
+      ...englishUiText.categoryLabels,
+    },
+  };
+
+  translatableKeys.forEach((key, index) => {
+    localizedUiText[key] = translatedValues[index];
+  });
+
+  categoryKeys.forEach((key, index) => {
+    localizedUiText.categoryLabels[key] = translatedCategoryValues[index];
+  });
+
+  localizedUiText.assistantLanguageInstruction =
+    getAssistantLanguageInstruction(browserLanguageCode);
+  uiText = localizedUiText;
 }
 
 /* Return the products that match the current category and keyword filters */
@@ -212,38 +741,37 @@ function getEmptyProductMessage() {
   const hasSearch = Boolean(normalizeSearchText(activeSearchQuery));
 
   if (hasCategory && hasSearch) {
-    return "No products match that category and search term.";
+    return uiText.noProductsMatchBoth;
   }
 
   if (hasCategory) {
-    return "No products found in this category.";
+    return uiText.noProductsMatchCategory;
   }
 
   if (hasSearch) {
-    return "No products match your search.";
+    return uiText.noProductsMatchSearch;
   }
 
-  return "Select a category or search by keyword to view products.";
+  return uiText.noProductsPrompt;
 }
 
 /* Render the products that match the current filters */
 async function renderFilteredProducts() {
   const products = await loadProducts();
   const filteredProducts = getFilteredProducts(products);
-  displayProducts(filteredProducts);
+  const localizedProducts = await Promise.all(
+    filteredProducts.map((product) => getLocalizedProduct(product)),
+  );
+  displayProducts(localizedProducts);
 }
 
-/* Send a chat request to the worker and return the assistant reply */
-async function sendChatRequest(messages) {
+/* Send payloads to the worker and return the parsed JSON response */
+async function sendWorkerRequest(payload) {
   const safeWorkerUrl = typeof WORKER_URL === "string" ? WORKER_URL.trim() : "";
 
   if (!safeWorkerUrl) {
-    throw new Error("Missing worker URL. Add WORKER_URL in secrets.js.");
+    throw new Error(uiText.missingWorkerUrl);
   }
-
-  const payload = {
-    messages,
-  };
 
   let response;
 
@@ -256,9 +784,7 @@ async function sendChatRequest(messages) {
       body: JSON.stringify(payload),
     });
   } catch (_networkError) {
-    throw new Error(
-      "Network fetch failed. Check WORKER_URL, your worker deployment, CORS settings, and internet connection.",
-    );
+    throw new Error(uiText.networkError);
   }
 
   const responseText = await response.text();
@@ -272,9 +798,7 @@ async function sendChatRequest(messages) {
 
   if (!response.ok) {
     if (response.status === 404) {
-      throw new Error(
-        "Worker endpoint not found (404). Check WORKER_URL in secrets.js.",
-      );
+      throw new Error(uiText.notFoundError);
     }
 
     throw new Error(
@@ -284,6 +808,13 @@ async function sendChatRequest(messages) {
         `Worker request failed (status ${response.status}).`,
     );
   }
+
+  return data;
+}
+
+/* Send a chat request to the worker and return the assistant reply */
+async function sendChatRequest(messages) {
+  const data = await sendWorkerRequest({ messages });
 
   const reply =
     data?.answer ||
@@ -295,7 +826,7 @@ async function sendChatRequest(messages) {
     (typeof data === "string" ? data : "");
 
   if (!reply) {
-    throw new Error("No response was returned by the worker.");
+    throw new Error(uiText.noResponseError);
   }
 
   return {
@@ -304,31 +835,46 @@ async function sendChatRequest(messages) {
   };
 }
 
+/* Ask the worker to translate text into the browser's language */
+async function sendTranslationRequest(texts) {
+  const data = await sendWorkerRequest({
+    task: "translate",
+    targetLanguage: browserLanguageCode,
+    texts,
+  });
+
+  const translations = Array.isArray(data?.translations)
+    ? data.translations
+    : [];
+
+  if (translations.length !== texts.length) {
+    return texts;
+  }
+
+  return translations.map((item, index) => String(item || texts[index]));
+}
+
 /* Ask OpenAI for a personalized routine using selected products */
 async function generateRoutineFromSelectedProducts() {
   if (selectedProducts.length === 0) {
-    chatWindow.textContent =
-      "Please select at least one product, then click Generate Routine.";
+    appendChatMessage("assistant", uiText.noProductsSelectedMessage, {
+      title: uiText.noProductsSelectedTitle,
+    });
     return;
   }
 
-  const selectedProductData = getSelectedProductData();
-  const productJson = JSON.stringify(selectedProductData, null, 2);
+  const productJson = getSelectedProductsContext();
+  const userRequest =
+    "Generate a personalized routine from my selected products.";
 
-  chatWindow.textContent = "Generating your personalized routine...";
+  appendUserMessage(userRequest);
   generateRoutineBtn.disabled = true;
 
   try {
     const routine = await sendChatRequest([
-      {
-        role: "system",
-        content:
-          "You are a beauty routine assistant. Use current, web-verified information when relevant. Create a practical step-by-step routine using only the selected products. Include morning and evening sections when possible. Return plain text only. Do not use markdown, bold text, bullet points, or special formatting. Use short section labels on separate lines, then list each step on its own line. Include any useful sources the worker provides.",
-      },
-      {
-        role: "user",
-        content: `Create a personalized skincare/beauty routine using only these selected products:\n\n${productJson}`,
-      },
+      ...buildConversationMessages(
+        `Create a personalized skincare/beauty routine using only these selected products:\n\n${productJson}`,
+      ),
     ]);
 
     typeIntoChatWindow(
@@ -336,8 +882,12 @@ async function generateRoutineFromSelectedProducts() {
       routine.citations,
       "Your Personalized Routine",
     );
+    recordConversationTurn(
+      `Create a personalized skincare/beauty routine using only these selected products:\n\n${productJson}`,
+      routine.answer,
+    );
   } catch (error) {
-    chatWindow.textContent = `Something went wrong: ${error.message}`;
+    appendChatMessage("assistant", `Something went wrong: ${error.message}`);
   } finally {
     generateRoutineBtn.disabled = false;
   }
@@ -351,12 +901,13 @@ function isProductSelected(productId) {
 }
 
 /* Open modal and show product description */
-function openDescriptionModal(product) {
+async function openDescriptionModal(product) {
+  const localizedProduct = await getLocalizedProduct(product);
   previousFocusedElement = document.activeElement;
-  descriptionModalTitle.textContent = `${product.name} by ${product.brand}`;
-  descriptionModalImage.src = product.image;
-  descriptionModalImage.alt = product.name;
-  descriptionModalBody.textContent = product.description;
+  descriptionModalTitle.textContent = `${localizedProduct.name} ${uiText.byText} ${localizedProduct.brand}`;
+  descriptionModalImage.src = localizedProduct.image;
+  descriptionModalImage.alt = localizedProduct.name;
+  descriptionModalBody.textContent = localizedProduct.description;
   descriptionModal.classList.add("is-open");
   descriptionModal.setAttribute("aria-hidden", "false");
   document.body.style.overflow = "hidden";
@@ -386,19 +937,25 @@ function toggleProductSelection(product) {
     selectedProducts.push(product);
   }
 
+  saveSelectedProducts();
   renderSelectedProducts();
 }
 
 /* Render selected products with remove buttons */
-function renderSelectedProducts() {
+async function renderSelectedProducts() {
   if (selectedProducts.length === 0) {
     selectedProductsList.innerHTML = `
-      <p class="selected-empty">No products selected yet.</p>
+      <p class="selected-empty">${uiText.selectedEmpty}</p>
     `;
+    updateSelectedProductsControls();
     return;
   }
 
-  selectedProductsList.innerHTML = selectedProducts
+  const localizedSelectedProducts = await Promise.all(
+    selectedProducts.map((product) => getLocalizedProduct(product)),
+  );
+
+  selectedProductsList.innerHTML = localizedSelectedProducts
     .map((product) => {
       const productId = getProductId(product);
 
@@ -407,14 +964,16 @@ function renderSelectedProducts() {
           type="button"
           class="selected-item"
           data-product-id="${productId}"
-          aria-label="Remove ${product.name}"
+          aria-label="Remove ${escapeHtml(product.name)}"
         >
-          ${product.name}
+          ${escapeHtml(product.name)}
           <span class="remove-icon" aria-hidden="true">&times;</span>
         </button>
       `;
     })
     .join("");
+
+  updateSelectedProductsControls();
 }
 
 /* Create HTML for displaying product cards */
@@ -439,20 +998,20 @@ function displayProducts(products) {
       role="button"
       tabindex="0"
       aria-pressed="${isProductSelected(productId)}"
-      aria-label="Select ${product.name}"
+      aria-label="Select ${escapeHtml(product.name)}"
     >
-      <img src="${product.image}" alt="${product.name}">
+      <img src="${product.image}" alt="${escapeHtml(product.name)}">
       <div class="product-info">
-        <h3>${product.name}</h3>
-        <p>${product.brand}</p>
+        <h3>${escapeHtml(product.name)}</h3>
+        <p>${escapeHtml(product.brand)}</p>
         <button
           type="button"
           class="description-toggle"
           data-product-id="${productId}"
           aria-haspopup="dialog"
-          aria-label="View details for ${product.name}"
+          aria-label="View details for ${escapeHtml(product.name)}"
         >
-          View details
+          ${uiText.detailsButton}
         </button>
       </div>
     </div>
@@ -485,7 +1044,7 @@ productsContainer.addEventListener("click", async (e) => {
     );
 
     if (productToShow) {
-      openDescriptionModal(productToShow);
+      await openDescriptionModal(productToShow);
     }
 
     return;
@@ -555,11 +1114,21 @@ selectedProductsList.addEventListener("click", (e) => {
     (product) => getProductId(product) !== productIdToRemove,
   );
 
+  saveSelectedProducts();
   renderSelectedProducts();
 
   /* Refresh visible cards so selected border is removed in grid */
   renderFilteredProducts();
 });
+
+if (clearSelectedProductsBtn) {
+  clearSelectedProductsBtn.addEventListener("click", () => {
+    selectedProducts = [];
+    saveSelectedProducts();
+    renderSelectedProducts();
+    renderFilteredProducts();
+  });
+}
 
 /* Close modal from close button or when clicking the backdrop */
 descriptionModal.addEventListener("click", (e) => {
@@ -579,8 +1148,15 @@ document.addEventListener("keydown", (e) => {
 });
 
 /* Show empty state message in selected section on first load */
-renderSelectedProducts();
-renderFilteredProducts();
+async function initializeApp() {
+  selectedProducts = loadSelectedProducts();
+  await localizeUiTextForBrowserLanguage();
+  applyLanguageToPage();
+  await renderSelectedProducts();
+  await renderFilteredProducts();
+}
+
+initializeApp();
 
 /* Generate routine from selected products */
 generateRoutineBtn.addEventListener("click", async () => {
@@ -599,29 +1175,25 @@ chatForm.addEventListener("submit", async (e) => {
     return;
   }
 
-  const selectedProductData = getSelectedProductData();
-  const productJson = JSON.stringify(selectedProductData, null, 2);
-
-  chatWindow.textContent = "Thinking...";
+  const productJson = getSelectedProductsContext();
+  appendUserMessage(question);
   sendBtn.disabled = true;
 
   try {
     const answer = await sendChatRequest([
-      {
-        role: "system",
-        content:
-          "You are a beauty routine assistant. Answer clearly and briefly. Use current, web-verified information when relevant. Use the selected products as your main context. If the question asks for a routine, give a practical step-by-step answer. Return plain text only. Do not use markdown, bold text, bullet points, or special formatting. Use short section labels on separate lines and keep each thought on its own line when helpful. Include any useful sources the worker provides.",
-      },
-      {
-        role: "user",
-        content: `Selected products:\n${productJson}\n\nUser question: ${question}`,
-      },
+      ...buildConversationMessages(
+        `Selected products:\n${productJson}\n\nUser question: ${question}`,
+      ),
     ]);
 
     typeIntoChatWindow(answer.answer, answer.citations);
+    recordConversationTurn(
+      `Selected products:\n${productJson}\n\nUser question: ${question}`,
+      answer.answer,
+    );
     userInput.value = "";
   } catch (error) {
-    chatWindow.textContent = `Something went wrong: ${error.message}`;
+    appendChatMessage("assistant", `Something went wrong: ${error.message}`);
   } finally {
     sendBtn.disabled = false;
   }
